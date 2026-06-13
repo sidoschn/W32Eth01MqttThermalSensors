@@ -26,21 +26,37 @@
 #include <ETH.h>
 #include <ArduinoMqttClient.h>
 
-static bool eth_connected = false;
+
 
 NetworkClient ethClient;
+static bool eth_connected = false;
 
 MqttClient mqttClient(ethClient);
+static bool mqttBroker_connected = false;
 
 const char broker[] = "192.168.0.39";
 int        port     = 1883;
-const char topic[]  = "thermalControl/WT32ETH01Sensors";
+const char infoTopic[]  = "thermalControl/WT32ETH01Sensors/nSensors";
+String baseTopic  = "thermalControl/WT32ETH01Sensors/";
+String nSensorsTopic  = "nSensors";
+// const char nSensorsTopic[]  = "BO_PufferOben";
 
-const long interval = 1000;
-unsigned long previousMillis = 0;
+const long connectInterval = 1000;
+const long reportingInterval = 10000;
+
 
 int count = 0;
 
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+// GPIO where the DS18B20 is connected to
+const int oneWireBus = 4;     
+
+// Setup a oneWire instance to communicate with any OneWire devices
+OneWire oneWire(oneWireBus);
+// Pass our oneWire reference to Dallas Temperature sensor 
+DallasTemperature sensors(&oneWire);
 
 // WARNING: onEvent is called from a separate FreeRTOS task (thread)!
 void onEvent(arduino_event_id_t event) {
@@ -51,7 +67,9 @@ void onEvent(arduino_event_id_t event) {
       // to be set before DHCP, so set it from the event handler thread.
       ETH.setHostname("esp32-ethernet");
       break;
-    case ARDUINO_EVENT_ETH_CONNECTED: Serial.println("ETH Connected"); break;
+    case ARDUINO_EVENT_ETH_CONNECTED: 
+    Serial.println("ETH Connected"); 
+    break;
     case ARDUINO_EVENT_ETH_GOT_IP:
       Serial.println("ETH Got IP");
       Serial.println(ETH);
@@ -60,64 +78,65 @@ void onEvent(arduino_event_id_t event) {
       if (!mqttClient.connect(broker, port)) {
           Serial.print("MQTT connection failed! Error code = ");
           Serial.println(mqttClient.connectError()); 
-          delay(1000);
-
-      while (1);
-  }
+          delay(connectInterval);
+      }
+      mqttBroker_connected = true;
+  
 
       break;
     case ARDUINO_EVENT_ETH_LOST_IP:
       Serial.println("ETH Lost IP");
       eth_connected = false;
+      mqttBroker_connected = false;
       break;
     case ARDUINO_EVENT_ETH_DISCONNECTED:
       Serial.println("ETH Disconnected");
       eth_connected = false;
+      mqttBroker_connected = false;
       break;
     case ARDUINO_EVENT_ETH_STOP:
       Serial.println("ETH Stopped");
       eth_connected = false;
+      mqttBroker_connected = false;
       break;
     default: break;
   }
 }
 
-// void testClient(const char *host, uint16_t port) {
-//   Serial.print("\nconnecting to ");
-//   Serial.println(host);
-
-//   NetworkClient client;
-//   if (!client.connect(host, port)) {
-//     Serial.println("connection failed");
-//     return;
-//   }
-//   client.printf("GET / HTTP/1.1\r\nHost: %s\r\n\r\n", host);
-//   while (client.connected() && !client.available());
-//   while (client.available()) {
-//     Serial.write(client.read());
-//   }
-
-//   Serial.println("closing connection\n");
-//   client.stop();
-// }
 
 void setup() {
   Serial.begin(115200);
   Network.onEvent(onEvent);
   ETH.begin();
   mqttClient.connect(broker, port);
+  sensors.begin();
 }
 
 void loop() {
   Serial.println("attepting to send message");
-  if (eth_connected) {
+  if (mqttBroker_connected) {
     Serial.println("sending message...");
     // testClient("google.com", 80);
+    
+    int nDevices = sensors.getDeviceCount();
+    
     mqttClient.poll();
-    mqttClient.beginMessage(topic);
-    mqttClient.print("hello from ESP32");
+    mqttClient.beginMessage(baseTopic+nSensorsTopic);
+    mqttClient.print(nDevices);
     mqttClient.endMessage();
+    sensors.requestTemperatures(); 
+    for(int i=0;i<nDevices;i++){
+      Serial.println("Sensor"+String(i));
+      float temperatureC = sensors.getTempCByIndex(i);
+      mqttClient.beginMessage(baseTopic+"Sensor"+i);
+      mqttClient.print(temperatureC);
+      mqttClient.endMessage();
+    }
+    
+
     Serial.println("message sent");
+  }else{
+    Serial.println("not connected to MQTT broker");
   }
-  delay(5000);
+  delay(reportingInterval);
 }
