@@ -120,11 +120,15 @@ void loop() {
     
     int nDevices = sensors.getDeviceCount();
     
+    int readDelay = 100*nDevices;
+
     mqttClient.poll();
     mqttClient.beginMessage(baseTopic+nSensorsTopic);
     mqttClient.print(nDevices);
     mqttClient.endMessage();
-    sensors.requestTemperatures(); 
+    sensors.requestTemperatures();
+    
+    delay(readDelay); //added a delay to prevent null reading of sensors
     for(int i=0;i<nDevices;i++){
       
       Serial.println("Sensor"+String(i));
@@ -143,5 +147,5 @@ void loop() {
   }else{
     Serial.println("not connected to MQTT broker");
   }
-  delay(reportingInterval);
+  delay(abs(reportingInterval-readDelay));
 }
