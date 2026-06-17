@@ -126,11 +126,16 @@ void loop() {
     mqttClient.endMessage();
     sensors.requestTemperatures(); 
     for(int i=0;i<nDevices;i++){
+      
       Serial.println("Sensor"+String(i));
       float temperatureC = sensors.getTempCByIndex(i);
-      mqttClient.beginMessage(baseTopic+"Sensor"+i);
-      mqttClient.print(temperatureC);
-      mqttClient.endMessage();
+      
+      if(temperatureC > -30){
+        mqttClient.beginMessage(baseTopic+"Sensor"+i);
+        mqttClient.print(temperatureC);
+        mqttClient.endMessage();
+      }
+      
     }
     
 
